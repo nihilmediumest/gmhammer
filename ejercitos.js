@@ -132,7 +132,7 @@ export async function loadArmyData(armyId) {
 
     try {
         // Step 1: Fetch data from the new server-side API (e.g., /api/get-army)
-        const response = await fetch(`/api/get-army?faction=${armyId}`);
+        const response = await fetch(``/armies/`${armyId}`);
         
         if (!response.ok) {
             throw new Error(`Failed to fetch army data for ${armyId}. Status: ${response.status}`);
