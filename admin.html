@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Guamahammer Editor</title>
+    <link rel="stylesheet" href="admin.css">
+</head>
+
+<header>
+    <div class="top-row-selectors">
+        <div class="filter-group">
+            <label for="faction-selector">Ejércitos en Server:</label>
+            <select id="faction-selector"></select>
+        </div>
+        <div class="filter-group">
+            <label for="fileLoader">Ejércitos en el Disco Duro:</label>
+            <input type="file" id="fileLoader" accept=".js">
+        </div>
+    </div>
+    <hr>
+    <div class="filter-group" id="main-filter-group">
+        <label><input type="radio" name="main-category" value="units" checked> Unidades</label>
+        <label><input type="radio" name="main-category" value="magicItems"> Objetos Mágicos</label>
+        <label><input type="radio" name="main-category" value="armySkills"> Habilidades</label>
+        <label><input type="radio" name="main-category" value="demonicGifts"> Regalos/Iconos</label>
+        <label><input type="radio" name="main-category" value="mounts"> Monturas</label>
+        <label><input type="radio" name="main-category" value="specialProfiles"> Unidades complementarias (Fanaticos, amerratadoras...)</label>
+    </div>
+    <div class="filter-group" id="sub-filter-group">
+        </div>
+    <div class="filter-group hidden" id="new-item-group">
+        <label for="new-item-count">Nuevo:</label>
+        <input type="number" id="new-item-count" value="1" min="1" style="width: 60px;">
+        <button id="add-new-btn">Añadir</button>
+    </div>
+</header>
+<body>
+
+    <main id="editor-container">
+        <p>Please load an army file or select an army to begin editing.</p>
+    </main>
+    
+    <footer>
+    <button id="backup-all-btn">Descargar Backup Completo</button>
+    <button id="download-server-btn" class="hidden">Descargar Archivo del Server</button>
+    <button id="delete-btn" disabled>Borrar Seleccionado(s)</button>
+    <button id="reset-btn" disabled>Reset Cambios</button>
+    <button id="save-btn" disabled>Guardar Cambios</button>
+</footer>
+
+    <!-- JSZip library for creating zip files in the browser -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+
+    <script type="module" src="admin.js"></script>
+
+    <!-- PASTE THIS DIALOG ELEMENT AT THE END OF YOUR admin.html FILE, BEFORE </body> -->
+<dialog id="raw-editor-modal">
+    <h2>Editor de JSON</h2>
+    <p>Advertencia: Los cambios aquí pueden romper el formato de datos. Usar con cuidado.</p>
+    <textarea id="raw-json-textarea" spellcheck="false"></textarea>
+    <footer>
+        <button id="cancel-raw-json-btn" type="button">Cancelar</button>
+        <button id="save-raw-json-btn" type="button">Guardar Cambios</button>
+    </footer>
+</dialog>
+
+</body>
+</html>

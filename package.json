@@ -1,0 +1,13 @@
+{
+  "name": "guamahammer-builder",
+  "version": "4.4.2",
+  "description": "Army builder and admin tool",
+  "main": "server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.21.2"
+  }
+}

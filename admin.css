@@ -1,0 +1,255 @@
+/* admin.css */
+body {
+    font-family: sans-serif;
+    background-color: #1a202c;
+    color: #cbd5e0;
+    margin: 0;
+    padding: 20px;
+    padding-bottom: 80px;
+}
+
+/* --- Header --- */
+header {
+    background-color: #2d3748;
+    padding: 15px;
+    border-radius: 8px;
+    margin-bottom: 20px;
+}
+#fileLoader {
+    max-width: 300px;
+}
+.filter-group {
+    margin-bottom: 10px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 15px;
+}
+hr { border-color: #4a5568; }
+
+/* --- Forms & Inputs --- */
+select, input, textarea {
+    background-color: #4a5568;
+    color: #f7fafc;
+    border: 1px solid #718096;
+    border-radius: 4px;
+    padding: 8px;
+    width: 100%;
+    box-sizing: border-box;
+}
+textarea { min-height: 80px; }
+button, input[type="file"]::file-selector-button {
+    background-color: #4a5568;
+    color: white;
+    border: none;
+    padding: 10px 15px;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+button:hover { background-color: #718096; }
+button:disabled { background-color: #2d3748; cursor: not-allowed; opacity: 0.6; }
+
+#faction-selector {
+    width: auto;
+    min-width: 250px;
+}
+
+/* --- Main Content & Cards --- */
+.hidden { display: none; }
+.entry-card {
+    background-color: #2d3748;
+    border: 1px solid #4a5568;
+    border-radius: 8px;
+    padding: 15px;
+    margin-bottom: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+.entry-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+/* NEW: Editable title input styling */
+.entry-title-input {
+    background: transparent;
+    border: 1px solid transparent; /* Hidden border */
+    color: #FBBF24;
+    font-size: 1.2em;
+    font-weight: bold;
+    padding: 4px 6px;
+    margin: 0;
+    flex-grow: 1; /* Take available space */
+}
+.entry-title-input:hover, .entry-title-input:focus {
+    background-color: #1a202c;
+    border-color: #718096; /* Show border on focus/hover */
+}
+
+/* Add this CSS to your admin.html or its stylesheet */
+
+.exclusive-group-fieldset {
+    border: 1px solid #4A5568; /* A dark gray border */
+    border-radius: 4px;
+    padding: 0.5rem;
+    margin-bottom: 0.5rem;
+    background-color: #2D3748; /* A slightly lighter background */
+}
+
+.exclusive-group-fieldset legend {
+    padding: 0 0.5rem;
+    font-weight: bold;
+    color: #A0AEC0; /* A light gray for the text */
+}
+
+/* Optional: remove padding from the table inside a fieldset to align it */
+.exclusive-group-fieldset > table {
+    margin: 0;
+}
+
+#editor-container {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+}
+
+@media (max-width: 1024px) {
+    #editor-container {
+        grid-template-columns: 1fr;
+    }
+}
+
+.attributes-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+}
+.command-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+}
+/* NEW: Grid for unit layout */
+.unit-layout {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+}
+
+@media (max-width: 900px) {
+    .unit-layout { grid-template-columns: 1fr; }
+}
+
+/* --- Tables for Profiles --- */
+table { width: 100%; border-collapse: collapse; margin-top: 5px;}
+th, td { text-align: left; padding: 4px; border-bottom: 1px solid #4a5568; }
+th { font-size: 0.8rem; color: #a0aec0; }
+td input { padding: 4px; }
+.command-group-subsection {
+    margin-top: 15px;
+    padding-top: 10px;
+    border-top: 1px solid #555;
+}
+
+.command-group-subsection h5 {
+    margin-top: 0;
+    margin-bottom: 8px;
+    font-size: 1em; /* Make it smaller than H4 */
+}
+/* NEW: Styles for add/delete row buttons */
+.add-row-btn {
+    background-color: #38a169; /* Green */
+    padding: 5px 10px;
+    font-size: 0.9em;
+    margin-top: 10px;
+}
+.delete-row-btn {
+    background-color: #c53030; /* Red */
+    color: white;
+    border: none;
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 3px;
+    font-size: 0.8em;
+}
+.delete-label {
+    display: flex;
+    align-items: center;
+    gap: 5px; /* Adds a nice space between the box and the text */
+    cursor: pointer; /* Improves user experience */
+}
+/* Style for the semi-transparent background behind the modal */
+#raw-editor-modal::backdrop {
+    background-color: rgba(0, 0, 0, 0.6);
+}
+
+/* Style for the textarea to make it usable */
+#raw-json-textarea {
+    display: block;
+    width: 100%;
+    min-height: 400px;
+    margin-top: 15px;
+    margin-bottom: 15px;
+    background-color: #1a202c;
+    color: #a0aec0;
+    border: 1px solid #4a5568;
+    border-radius: 4px;
+    font-family: 'Courier New', Courier, monospace; /* Use a monospaced font for code */
+    font-size: 14px;
+    resize: vertical;
+}
+
+/* Style for the footer containing the buttons */
+#raw-editor-modal footer {
+    display: flex;
+    justify-content: flex-end; /* Aligns buttons to the right */
+    gap: 15px; /* Adds space between buttons */
+}
+
+/* Basic styling for the buttons inside the modal */
+#raw-editor-modal button {
+    padding: 8px 16px;
+    border-radius: 4px;
+    border: none;
+    cursor: pointer;
+}
+
+#cancel-raw-json-btn {
+    background-color: #718096;
+    color: white;
+}
+
+#save-raw-json-btn {
+    background-color: #38a169; /* Green for save */
+    color: white;
+}
+
+/* --- Footer --- */
+footer {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    background-color: #2d3748;
+    padding: 10px 20px;
+    box-shadow: 0 -2px 10px rgba(0,0,0,0.5);
+    display: flex;
+    gap: 15px;
+    justify-content: center;
+    box-sizing: border-box;
+}
+/* PASTE THIS AT THE END OF YOUR admin.css FILE */
+
+/* Style for the modal window itself */
+#raw-editor-modal {
+    width: 90%;
+    max-width: 800px;
+    border: 1px solid #555;
+    border-radius: 8px;
+    padding: 20px;
+    background-color: #2d3748; /* Matching the dark theme */
+    color: #edf2f7;
+}
+
