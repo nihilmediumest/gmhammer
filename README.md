@@ -85,9 +85,8 @@ Armies are structured with the following components:
 
 ## Version History
 
-- 4.4.2: Migration to Express server architecture
-- Previous versions: Netlify functions-based architecture
-
+- 4.4.2: Migration from offline to server architecture
+  
 ## License
 
 This project is proprietary software. All rights reserved.
