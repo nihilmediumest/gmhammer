@@ -1,4 +1,4 @@
-# Guamahammer Army Builder v4.4.2
+# Guamahammer Army Builder v4.5
 
 A web-based army builder application with an integrated admin interface for managing army data. This version uses an Express.js server for handling army data and management.
 
@@ -85,8 +85,7 @@ Armies are structured with the following components:
 
 ## Version History
 
-- 4.4.2: Migration from offline to server architecture
-  
+- 4.5 fixing issues with manual-units in printing and FOC points distribution. unfinished. child manual units can't be rendered to edit.
 ## License
 
 This project is proprietary software. All rights reserved.
