@@ -25,9 +25,18 @@ let mainHostFaction = null; // For Chaos Host system
 let chaosHostData = {}; // Stores data for all loaded Chaos factions
 let validationMode = 'restringido'; // 'legal' or 'restricted'
 // --- INITIALIZATION ---
-document.addEventListener('DOMContentLoaded', () => {
+// Replace your DOMContentLoaded event with this:
+function initializeApp() {
     console.log("Guamahammer Modular Engine Initializing...");
 
+    // Check if modal elements exist, if not retry after a short delay
+    if (!document.getElementById('modal-close-btn')) {
+        console.log('Modal elements not ready, retrying...');
+        setTimeout(initializeApp, 100);
+        return;
+    }
+
+    // Initialize DOM elements
     dom = {
         loadingOverlay: document.getElementById('loading-overlay'),
         armySelector: document.getElementById('army-selector'),
@@ -45,20 +54,27 @@ document.addEventListener('DOMContentLoaded', () => {
         armyListContainer: document.getElementById('army-list-container'),
         armyListNameInput: document.getElementById('army-list-name'),
         printBtn: document.getElementById('print-btn'),
+        newListBtn: document.getElementById('new-list-btn'),
+        saveFileBtn: document.getElementById('save-file-btn'),
+        loadFileLabel: document.querySelector('label[for="load-file-input"]'),
+        loadFileInput: document.getElementById('load-file-input'),
+        validationModeContainer: document.getElementById('validation-mode-container'),
+        validationModeToggle: document.getElementById('validation-mode-toggle'),
+        // Modal elements
         modal: document.getElementById('selection-modal'),
         modalTitle: document.getElementById('modal-title'),
         modalContent: document.getElementById('modal-content'),
         modalFooter: document.getElementById('modal-stats-footer'),
         modalConfirmBtn: document.getElementById('modal-confirm-btn'),
-        modalCloseBtn: document.getElementById('modal-close-btn'),
-        newListBtn: document.getElementById('new-list-btn'),
-        saveFileBtn: document.getElementById('save-file-btn'),
-        loadFileLabel: document.querySelector('label[for="load-file-input"]'),
-        loadFileInput: document.getElementById('load-file-input'),
-        validationModeContainer: document.getElementById('validation-mode-container'), // <-- ADD THIS
-        validationModeToggle: document.getElementById('validation-mode-toggle'),     // <-- ADD THIS
-        };
-    dom.validationModeToggle.checked = true; // Default to 'restricted' mode
+        modalCloseBtn: document.getElementById('modal-close-btn')
+    };
+
+    console.log('Modal close button found:', !!dom.modalCloseBtn);
+
+    // Rest of initialization...
+    if (dom.validationModeToggle) {
+        dom.validationModeToggle.checked = true;
+    }
 
     populateArmySelector();
     addEventListeners();
@@ -72,8 +88,30 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    dom.loadingOverlay.classList.add('hidden');
+    if (dom.loadingOverlay) {
+        dom.loadingOverlay.classList.add('hidden');
+    }
+}
+// Add this after your DOM initialization
+const observer = new MutationObserver((mutations) => {
+    mutations.forEach((mutation) => {
+        if (mutation.type === 'childList') {
+            mutation.removedNodes.forEach((node) => {
+                if (node.id === 'modal-close-btn' || node.querySelector && node.querySelector('#modal-close-btn')) {
+                    console.warn('Modal close button was removed from DOM!');
+                }
+            });
+        }
+    });
 });
+
+// Start observing
+observer.observe(document.body, {
+    childList: true,
+    subtree: true
+});
+// Start the app
+document.addEventListener('DOMContentLoaded', initializeApp);
 
 // ===================================================================================
 // --- SAVE, LOAD, AND STATE MANAGEMENT ---
@@ -84,6 +122,7 @@ function getCurrentAppState() {
         armyList: armyList,
         nextId: nextId,
         armyId: currentArmyData?.FACTION_ID || null,
+        currentArmyData: currentArmyData, // <-- THIS IS THE FIX
         battlePoints: parseInt(dom.battlePointsInput.value),
         armyListName: dom.armyListNameInput.value,
         generalId: generalId,
@@ -96,7 +135,6 @@ async function restoreState(state) {
         return;
     }
     
-
     dom.loadingOverlay.classList.remove('hidden');
 
     await selectArmy(state.armyId);
@@ -107,6 +145,9 @@ async function restoreState(state) {
     dom.battlePointsInput.value = state.battlePoints || 2000;
     dom.armyListNameInput.value = state.armyListName || '';
 
+    // FIX: Clean up any duplicate manual units when restoring state
+    cleanupDuplicateManualUnits();
+
     console.log("State restored successfully.");
 
     cancelEdit();
@@ -116,7 +157,6 @@ async function restoreState(state) {
 
     dom.loadingOverlay.classList.add('hidden');
 }
-
 
 // ===================================================================================
 // --- CENTRAL UPDATE & RENDER CYCLE ---
@@ -195,36 +235,137 @@ function isUnitSelectionAllowed(unitData) {
     return true;
 }
 
-
 function _preserveManualEntryState() {
-    const nameInput = document.getElementById('manual-unit-name');
-    const pointsInput = document.getElementById('manual-unit-points');
-    const detailsInput = document.getElementById('manual-unit-details');
-    const allyArmySelect = document.getElementById('manual-unit-ally-army');
+    const manualSections = document.querySelectorAll('#dynamic-components-area .config-section');
+    
+    // Reset tempManualEntry to object format
+    tempManualEntry = {};
+    
+    manualSections.forEach(section => {
+        const sourceSkill = section.querySelector('.manual-unit-source').value;
+        const nameInput = section.querySelector('.manual-unit-name');
+        const pointsInput = section.querySelector('.manual-unit-points');
+        const detailsInput = section.querySelector('.manual-unit-details');
+        const allyArmySelect = section.querySelector('.manual-unit-ally-army');
 
-    if (nameInput) {
-        tempManualEntry = {
-            name: nameInput.value,
-            points: pointsInput.value,
-            details: detailsInput.value,
-            allyArmyId: allyArmySelect ? allyArmySelect.value : ''
-        };
-    }
+        if (nameInput && pointsInput) {
+            tempManualEntry[sourceSkill] = {
+                name: nameInput.value,
+                points: pointsInput.value,
+                details: detailsInput ? detailsInput.value : '',
+                allyArmyId: allyArmySelect ? allyArmySelect.value : '',
+                sourceSkill: sourceSkill
+            };
+        }
+    });
 }
-
 
 // ===================================================================================
 // --- RECRUITMENT PANEL & CONFIGURATION ---
 // ===================================================================================
 
+function _getAllManualEntries() {
+    const entries = [];
+    
+    // If tempManualEntry is already populated (from _preserveManualEntryState), use it
+    if (typeof tempManualEntry === 'object' && Object.keys(tempManualEntry).length > 0) {
+        Object.values(tempManualEntry).forEach(entry => {
+            if (entry.name && entry.points) {
+                entries.push(entry);
+            }
+        });
+    } else {
+        // Fallback: scan the DOM
+        const manualSections = document.querySelectorAll('#dynamic-components-area .config-section');
+        
+        manualSections.forEach(section => {
+            const sourceSkill = section.querySelector('.manual-unit-source').value;
+            const nameInput = section.querySelector('.manual-unit-name');
+            const pointsInput = section.querySelector('.manual-unit-points');
+            const detailsInput = section.querySelector('.manual-unit-details');
+            const allyArmySelect = section.querySelector('.manual-unit-ally-army');
+
+            if (nameInput && pointsInput) {
+                entries.push({
+                    name: nameInput.value,
+                    points: pointsInput.value,
+                    details: detailsInput ? detailsInput.value : '',
+                    allyArmyId: allyArmySelect ? allyArmySelect.value : '',
+                    sourceSkill: sourceSkill
+                });
+            }
+        });
+    }
+    
+    return entries;
+}
+
+function createIndependentManualUnit(manualData, parentId) {
+    // Determine FOC based on source skill
+    let foc = 'Special'; // Default for Buenos Contactos
+    if (manualData.sourceSkill === 'Creyente Devoto') {
+        foc = 'Hero';
+    }
+    
+    // Check if this manual unit already exists to prevent duplicates
+    const existingManualUnit = armyList.find(unit => 
+        unit.isManual && 
+        unit.createdBy === parentId && 
+        unit.name === manualData.name &&
+        unit.points === parseInt(manualData.points) &&
+        unit.foc === foc
+    );
+    
+    if (existingManualUnit) {
+        console.log(`Manual unit already exists: ${manualData.name} for parent ${parentId}`);
+        return existingManualUnit;
+    }
+    
+    const newManualUnit = {
+        id: nextId++,
+        name: manualData.name,
+        points: parseInt(manualData.points) || 0,
+        displayOptions: [
+            `Vía: ${manualData.sourceSkill}`,
+            ...(manualData.details ? [manualData.details] : [])
+        ],
+        isManual: true,
+        createdBy: parentId,
+        faction: manualData.allyArmyId || currentArmyData?.FACTION_ID,
+        foc: foc, // Set the FOC explicitly
+        resolvedFoc: foc, // Also set resolvedFoc to ensure proper categorization
+        selections: {} // Empty selections for manual units
+    };
+    
+    armyList.push(newManualUnit);
+    console.log(`Created manual unit: ${manualData.name} (${newManualUnit.points} pts, FOC: ${foc}) for parent ${parentId}`);
+    return newManualUnit;
+}
+
+// NEW: Improved cleanup for manual units
+function _cleanupManualUnits(parentId) {
+    armyList = armyList.filter(unit => unit.createdBy !== parentId);
+}
+
+// NEW: Get manual units for parent
+function _getManualUnitsForParent(parentId) {
+    return armyList.filter(unit => {
+        // Check if this is a manual unit AND created by the specified parent
+        if (!unit.isManual || unit.createdBy !== parentId) return false;
+        
+        // Additional validation to ensure it's a proper manual unit
+        const hasViaOption = unit.displayOptions && 
+                            unit.displayOptions.some(opt => opt.startsWith('Vía: '));
+        return hasViaOption;
+    });
+}
 
 function processUiActions(actions) {
     const dynamicArea = document.getElementById('dynamic-components-area');
     if (!dynamicArea) {
-        // Create the dynamic area if it doesn't exist AND configArea exists
         if (!dom.configArea) {
             console.error('configArea is not available');
-            return; // Exit early if configArea doesn't exist
+            return;
         }
         const newDynamicArea = document.createElement('div');
         newDynamicArea.id = 'dynamic-components-area';
@@ -233,7 +374,6 @@ function processUiActions(actions) {
 
     if (!actions || actions.length === 0) return;
 
-    // Clear previous content before adding new
     const areaToUse = dynamicArea || document.getElementById('dynamic-components-area');
     if (!areaToUse) return;
 
@@ -243,18 +383,18 @@ function processUiActions(actions) {
         if (action.type !== 'RENDER_COMPONENT' || action.payload.componentName !== 'ManualUnitEntry') return;
         
         const props = action.payload.props;
-        const name = tempManualEntry.name || '';
-        const points = tempManualEntry.points || '';
-        const details = tempManualEntry.details || '';
+        
+        // Find existing manual entry data for this specific source skill
+        const existingEntry = tempManualEntry[props.sourceSkill] || {};
         
         let customControls = '';
         if (props.type === 'alliedUnit') {
             const buildOptions = (armies, category) => Object.entries(armies)
-                .map(([name, id]) => `<option value="${id}" ${tempManualEntry.allyArmyId === id ? 'selected' : ''}>${name} (${category})</option>`)
+                .map(([name, id]) => `<option value="${id}" ${existingEntry.allyArmyId === id ? 'selected' : ''}>${name} (${category})</option>`)
                 .join('');
             
             customControls = `
-                <select id="manual-unit-ally-army" class="bg-gray-900 text-white p-1 rounded w-full border border-gray-600 mb-2">
+                <select id="manual-unit-ally-army-${props.sourceSkill.replace(/\s/g, '')}" class="manual-unit-ally-army bg-gray-900 text-white p-1 rounded w-full border border-gray-600 mb-2">
                     <option value="">-- Elige Ejército Aliado --</option>
                     <optgroup label="Unidad Básica">
                         ${buildOptions(props.coreAllies, 'Básica')}
@@ -267,14 +407,14 @@ function processUiActions(actions) {
         }
         
         areaToUse.innerHTML += `
-            <div class="config-section p-3 mt-4 rounded-md bg-gray-700/50 border-l-2 border-yellow-500">
+            <div class="config-section p-3 mt-4 rounded-md bg-gray-700/50 border-l-2 border-yellow-500" data-source-skill="${props.sourceSkill}">
                 <label class="font-bold text-yellow-400">${props.sourceSkill}</label>
-                <input type="hidden" id="manual-unit-source" value="${props.sourceSkill}">
+                <input type="hidden" class="manual-unit-source" value="${props.sourceSkill}">
                 ${customControls}
                 <div class="space-y-2">
-                    <input type="text" id="manual-unit-name" class="bg-gray-900 text-white p-1 rounded w-full border border-gray-600" placeholder="Nombre de la Unidad/Personaje" value="${name}">
-                    <input type="number" id="manual-unit-points" class="bg-gray-900 text-white p-1 rounded w-full border border-gray-600" placeholder="Coste en Puntos" value="${points}">
-                    <textarea id="manual-unit-details" class="bg-gray-900 text-white p-1 rounded w-full border border-gray-600" rows="2" placeholder="Equipo y Reglas (para la impresión)">${details}</textarea>
+                    <input type="text" class="manual-unit-name bg-gray-900 text-white p-1 rounded w-full border border-gray-600" placeholder="Nombre de la Unidad/Personaje" value="${existingEntry.name || ''}">
+                    <input type="number" class="manual-unit-points bg-gray-900 text-white p-1 rounded w-full border border-gray-600" placeholder="Coste en Puntos" value="${existingEntry.points || ''}">
+                    <textarea class="manual-unit-details bg-gray-900 text-white p-1 rounded w-full border border-gray-600" rows="2" placeholder="Equipo y Reglas (para la impresión)">${existingEntry.details || ''}</textarea>
                 </div>
             </div>
         `;
@@ -608,112 +748,270 @@ function updateTempSelectionsFromPanel() {
 // ===================================================================================
 // --- EVENT LISTENERS ---
 // ===================================================================================
-
 //  addEventListeners--> handleCompositionRatio() automatic ratio 
 // calculation for Composition units.
 // REPLACE this function in main.js-11-10-25
 function addEventListeners() {
-    dom.armySelector.addEventListener('change', (e) => selectArmy(e.target.value));
-    
-  dom.validationModeToggle.addEventListener('change', (e) => {
-    validationMode = e.target.checked ? 'restringido' : 'legal';
-    console.log(`Validation mode set to: ${validationMode} (${e.target.checked ? 'follows Chaos Host rules' : 'unrestricted mode'})`);
-    populateUnitSelector();
-    updateMasterUI();
-});
-    dom.unitSelector.addEventListener('change', () => {
+    console.log('Setting up event listeners...');
+    // Debug: Check ALL modal elements at the start of this function
+    console.log('=== ADD EVENT LISTENERS DEBUG ===');
+    console.log('dom.modalCloseBtn:', dom.modalCloseBtn);
+    console.log('dom.modalCloseBtn type:', typeof dom.modalCloseBtn);
+    console.log('dom.modalCloseBtn element:', document.getElementById('modal-close-btn'));
+    console.log('dom object:', dom);
+    console.log('=== END DEBUG ===');
+    // Helper function to safely add event listeners
+    function safeAddEventListener(element, event, handler) {
+        if (element && element.addEventListener) {
+            element.addEventListener(event, handler);
+            return true;
+        } else {
+            console.warn(`Cannot add ${event} listener to missing element:`, element);
+            return false;
+        }
+    }
+
+    // Basic UI event listeners with safety checks
+    safeAddEventListener(dom.armySelector, 'change', (e) => selectArmy(e.target.value));
+  
+    if (dom.validationModeToggle) {
+        dom.validationModeToggle.addEventListener('change', (e) => {
+            validationMode = e.target.checked ? 'restringido' : 'legal';
+            console.log(`Validation mode set to: ${validationMode}`);
+            populateUnitSelector();
+            updateMasterUI();
+        });
+    }
+
+    safeAddEventListener(dom.unitSelector, 'change', () => {
         if (editingUnitId !== null) cancelEdit();
         tempSelections = {};
         updateAndRenderConfigPanel();
     });
 
-    dom.battlePointsInput.addEventListener('input', updateMasterUI);
-    dom.armyListNameInput.addEventListener('input', () => storage.saveStateToLocalStorage(getCurrentAppState()));
-
-    dom.addToListBtn.addEventListener('click', () => addOrUpdateUnit());
-    dom.printBtn.addEventListener('click', printArmyList);
-
-    dom.configArea.addEventListener('input', (e) => {
-    if (!dom.configArea) return; // Safety check
+    safeAddEventListener(dom.battlePointsInput, 'input', updateMasterUI);
     
-    if (e.target.id === 'config-qty-primary' || e.target.id === 'config-qty-secondary') {
-        handleCompositionRatio(e);
+    if (dom.armyListNameInput) {
+        dom.armyListNameInput.addEventListener('input', () => storage.saveStateToLocalStorage(getCurrentAppState()));
     }
-    updateTempSelectionsFromPanel();
-    updateConfigSubtotal();
-});
-    
-    // --- THIS IS THE FIX ---21-10-25
-    // This 'change' listener handles actions that finish an interaction.
-    // It now contains the complete logic to re-render the panel ONLY
-    // when a checkbox that affects the UI is changed.
-    dom.configArea.addEventListener('change', (e) => {
-         updateTempSelectionsFromPanel();
-        updateConfigSubtotal();
-    
-        // Define which specific checkboxes trigger a full UI re-render.
-        const structuralCheckboxes = [
-            'config-cmd-c', // Champion
-            'config-cmd-s', // Standard Bearer  
-            'config-cmd-m', // Musician
-            'config-bsb'    // Battle Standard Bearer
-        ];
+
+    safeAddEventListener(dom.addToListBtn, 'click', () => addOrUpdateUnit());
+    safeAddEventListener(dom.printBtn, 'click', printArmyList);
+
+    // Config area listeners
+    if (dom.configArea) {
+        dom.configArea.addEventListener('input', (e) => {
+            if (!dom.configArea) return;
+            
+            if (e.target.id === 'config-qty-primary' || e.target.id === 'config-qty-secondary') {
+                handleCompositionRatio(e);
+            }
+            updateTempSelectionsFromPanel();
+            updateConfigSubtotal();
+        });
         
-        // Re-render only for these specific command group changes.
-        if (e.target.type === 'checkbox' && structuralCheckboxes.includes(e.target.id)) {
-            updateAndRenderConfigPanel(); 
+        dom.configArea.addEventListener('change', (e) => {
+            updateTempSelectionsFromPanel();
+            updateConfigSubtotal();
+        
+            const structuralCheckboxes = [
+                'config-cmd-c', 'config-cmd-s', 'config-cmd-m', 'config-bsb'
+            ];
+            
+            if (e.target.type === 'checkbox' && structuralCheckboxes.includes(e.target.id)) {
+                updateAndRenderConfigPanel(); 
+            }
+        });
+
+        dom.configArea.addEventListener('click', (e) => {
+            if (e.target.closest('.open-modal-btn')) {
+                openSelectionModal(e);
+            }
+        });
+    }
+
+    // Army list container
+    if (dom.armyListContainer) {
+        dom.armyListContainer.addEventListener('click', (e) => {
+            const unitEntry = e.target.closest('.unit-entry');
+            if (!unitEntry) return;
+            
+            const id = parseInt(unitEntry.dataset.id);
+            const unit = armyList.find(u => u.id === id);
+
+            // Handle general checkbox
+            if (e.target.classList.contains('general-checkbox') && !unit?.isManual) {
+                generalId = e.target.checked ? id : null;
+                updateMasterUI();
+                return;
+            }
+
+            const action = e.target.dataset.action;
+            if (action === 'duplicate') {
+                duplicateUnit(id);
+            } else if (action === 'remove') {
+                removeUnitFromList(id);
+            } else if (!e.target.closest('button, input') && !unit?.isManual) {
+                startEdit(id);
+            }
+        });
+    } else {
+        console.warn('armyListContainer not found');
+    }
+
+    // Modal event listeners with safety checks
+    if (dom.modalCloseBtn) {
+        dom.modalCloseBtn.addEventListener('click', () => {
+            if (dom.modal) dom.modal.classList.add('hidden');
+        });
+    } else {
+        console.warn('Modal close button not found');
+    }
+
+    if (dom.modalConfirmBtn) {
+        dom.modalConfirmBtn.addEventListener('click', () => {
+            confirmModalSelection();
+            updateAndRenderConfigPanel();
+        });
+    } else {
+        console.warn('Modal confirm button not found');
+    }
+
+    if (dom.modalContent) {
+        dom.modalContent.addEventListener('change', updateModalState);
+    } else {
+        console.warn('Modal content not found');
+    }
+    
+    // Validation popup
+    if (dom.validationPopupContainer) {
+        dom.validationPopupContainer.addEventListener('mouseenter', () => {
+            const checklist = document.getElementById('army-validation-checklist');
+            if (checklist) checklist.classList.remove('hidden');
+        });
+        
+        dom.validationPopupContainer.addEventListener('mouseleave', () => {
+            const checklist = document.getElementById('army-validation-checklist');
+            if (checklist) checklist.classList.add('hidden');
+        });
+    }
+
+    // File operations
+    safeAddEventListener(dom.newListBtn, 'click', () => {
+        if (confirm("¿Estás seguro de que quieres empezar una nueva lista? Se borrará el progreso no guardado.")) {
+            storage.clearLocalStorage();
+            location.reload();
+        }
+    });
+
+    safeAddEventListener(dom.saveFileBtn, 'click', () => {
+        if (!currentArmyData || armyList.length === 0) {
+            alert("No hay nada que guardar. Añade unidades a tu lista primero.");
+            return;
+        }
+        storage.saveStateToFile(getCurrentAppState());
+    });
+
+    safeAddEventListener(dom.loadFileInput, 'change', (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        storage.loadFileAsState(file)
+            .then(restoreState)
+            .catch(error => alert(`Error al cargar el archivo: ${error.message}`));
+        e.target.value = null;
+    });
+
+    // Admin button
+    const adminBtn = document.getElementById('admin-btn');
+    if (adminBtn) {
+        adminBtn.addEventListener('click', () => {
+            const adminPassword = "qidaohaogan";
+            const userInput = prompt("Enter admin password:");
+            if (userInput === null) return;
+            if (userInput === adminPassword) {
+                window.open('admin.html', '_blank');
+            } else {
+                alert("Incorrect password.");
+            }
+        });
+    }
+
+    console.log('Event listeners setup complete');
+}
+
+       // MODAL EVENT LISTENERS - ULTIMATE FIX
+    console.log('Setting up modal event listeners...');
+    
+    // COMPLETELY INDEPENDENT APPROACH - Don't rely on dom object at all
+    (function setupModalListeners() {
+        console.log('Setting up modal listeners in isolated scope...');
+        
+        // Get fresh references directly from DOM
+        const modalCloseElement = document.getElementById('modal-close-btn');
+        const modalConfirmElement = document.getElementById('modal-confirm-btn');
+        const modalContentElement = document.getElementById('modal-content');
+        const modalElement = document.getElementById('selection-modal');
+        
+        console.log('Fresh modal elements in isolated scope:', {
+            close: !!modalCloseElement,
+            confirm: !!modalConfirmElement,
+            content: !!modalContentElement,
+            modal: !!modalElement
+        });
+        
+        // Close button - multiple fallback methods
+        if (modalCloseElement && modalCloseElement.addEventListener) {
+            console.log('Adding event listener to close button');
+            modalCloseElement.addEventListener('click', function() {
+                console.log('Close button clicked');
+                if (modalElement) {
+                    modalElement.classList.add('hidden');
+                    console.log('Modal hidden');
+                }
+            });
+        } else {
+            console.warn('Close button not available, using delegation');
+            // Fallback 1: Event delegation
+            document.body.addEventListener('click', function(e) {
+                if (e.target && e.target.id === 'modal-close-btn') {
+                    console.log('Close button clicked (delegation)');
+                    const modal = document.getElementById('selection-modal');
+                    if (modal) modal.classList.add('hidden');
+                }
+            });
         }
         
-        updateConfigSubtotal();
-    });
-    // --- END OF FIX ---
-
-    dom.configArea.addEventListener('click', (e) => {
-        if (e.target.closest('.open-modal-btn')) {
-            openSelectionModal(e);
+        // Confirm button
+        if (modalConfirmElement && modalConfirmElement.addEventListener) {
+            modalConfirmElement.addEventListener('click', function() {
+                console.log('Confirm button clicked');
+                confirmModalSelection();
+                updateAndRenderConfigPanel();
+            });
+        } else {
+            document.body.addEventListener('click', function(e) {
+                if (e.target && e.target.id === 'modal-confirm-btn') {
+                    console.log('Confirm button clicked (delegation)');
+                    confirmModalSelection();
+                    updateAndRenderConfigPanel();
+                }
+            });
         }
-    });
-
-
-dom.armyListContainer.addEventListener('click', (e) => {
-    const unitEntry = e.target.closest('.unit-entry');
-    if (!unitEntry) return;
-    const id = parseInt(unitEntry.dataset.id);
-
-    // --- START OF FIX ---
-    // This new logic specifically handles clicks on the 'General' checkbox by its class.
-    if (e.target.classList.contains('general-checkbox')) {
-        // If the box is checked, this unit becomes the general.
-        // If it's unchecked, there is no general.
-        generalId = e.target.checked ? id : null;
         
-        // The master UI update will re-render the list, ensuring only one box
-        // can be checked at a time and all rules are re-evaluated.
-        updateMasterUI();
-        return; // Stop here to prevent the click from also triggering an edit.
-    }
-    // --- END OF FIX ---
+        // Modal content changes
+        if (modalContentElement && modalContentElement.addEventListener) {
+            modalContentElement.addEventListener('change', updateModalState);
+        } else {
+            document.addEventListener('change', function(e) {
+                if (e.target && e.target.closest('#modal-content')) {
+                    updateModalState();
+                }
+            });
+        }
+        
+        console.log('Modal listeners setup complete in isolated scope');
+    })();
 
-    // The rest of the logic for other buttons remains the same.
-    const action = e.target.dataset.action;
-    if (action === 'duplicate') {
-        duplicateUnit(id);
-    } else if (action === 'remove') {
-        removeUnitFromList(id);
-    } else if (!e.target.closest('button, input')) {
-        // If the click was not on a button or any input (like our checkbox), start editing the unit.
-        startEdit(id);
-    }
-});
-
-
-    dom.modalCloseBtn.addEventListener('click', () => dom.modal.classList.add('hidden'));
-    dom.modalConfirmBtn.addEventListener('click', () => {
-        confirmModalSelection();
-        updateAndRenderConfigPanel();
-    });
-    dom.modalContent.addEventListener('change', updateModalState);
-    
     dom.validationPopupContainer.addEventListener('mouseenter', () => document.getElementById('army-validation-checklist')?.classList.remove('hidden'));
     dom.validationPopupContainer.addEventListener('mouseleave', () => document.getElementById('army-validation-checklist')?.classList.add('hidden'));
 
@@ -741,9 +1039,54 @@ dom.armyListContainer.addEventListener('click', (e) => {
         e.target.value = null;
     });
 
-    // Inside the addEventListeners() function in main.js
+    // Modal event listeners - WITH EXTREME SAFETY
+    console.log('Setting up modal event listeners...');
+    
+    // Get fresh references to modal elements to avoid any timing issues
+    const modalCloseBtn = document.getElementById('modal-close-btn');
+    const modalConfirmBtn = document.getElementById('modal-confirm-btn');
+    const modalContent = document.getElementById('modal-content');
+    const modalElement = document.getElementById('selection-modal');
+    
+    console.log('Fresh modal elements:', {
+        modalCloseBtn: !!modalCloseBtn,
+        modalConfirmBtn: !!modalConfirmBtn,
+        modalContent: !!modalContent,
+        modalElement: !!modalElement
+    });
+
+    if (modalCloseBtn && typeof modalCloseBtn.addEventListener === 'function') {
+        console.log('Adding event listener to modal close button');
+        modalCloseBtn.addEventListener('click', () => {
+            console.log('Modal close clicked');
+            if (modalElement) {
+                modalElement.classList.add('hidden');
+                console.log('Modal hidden');
+            }
+        });
+        console.log('Modal close event listener added successfully');
+    } else {
+        console.error('CANNOT ADD MODAL CLOSE LISTENER:', {
+            element: modalCloseBtn,
+            hasAddEventListener: modalCloseBtn?.addEventListener
+        });
+    }
+
+    if (modalConfirmBtn && typeof modalConfirmBtn.addEventListener === 'function') {
+        modalConfirmBtn.addEventListener('click', () => {
+            console.log('Modal confirm clicked');
+            confirmModalSelection();
+            updateAndRenderConfigPanel();
+        });
+    }
+
+    if (modalContent && typeof modalContent.addEventListener === 'function') {
+        modalContent.addEventListener('change', updateModalState);
+    }
+
 
 const adminBtn = document.getElementById('admin-btn');
+    if (adminBtn) {
 
 adminBtn.addEventListener('click', () => {
     // 1. The password is fixed directly in the code.
@@ -764,13 +1107,12 @@ adminBtn.addEventListener('click', () => {
         alert("Incorrect password.");
     }
 });
-}
 
+}
 
 // ===================================================================================
 // --- DATA & STATE MANAGEMENT ---
 // ===================================================================================
-// PASTE THIS ENTIRE NEW FUNCTION INTO main.js
 
 function getUnitDataByName(unitName) {
     if (!currentArmyData) return null;
@@ -784,22 +1126,35 @@ function getUnitDataByName(unitName) {
     return currentArmyData.unitsDB[unitName] || null;
 }
 
-// REPLACE this function in main.js
 function getResolvedArmyList() {
     let list = JSON.parse(JSON.stringify(armyList));
+    
+    // FIX: Ensure ALL manual units keep their assigned FOC and are not duplicated
+    list.forEach(unit => {
+        if (unit.isManual) {
+            unit.resolvedFoc = unit.foc;
+            unit.isAlly = unit.faction !== currentArmyData?.FACTION_ID;
+        }
+    });
+    
     const rules = currentArmyData?.ARMY_RULESET?.focResolutionRules;
 
     if (mainHostFaction) {
         list.forEach(unit => {
-            if (unit.faction && unit.faction !== mainHostFaction) {
+            if (unit.faction && unit.faction !== mainHostFaction && !unit.isManual) {
                 unit.isAlly = true;
             }
         });
     }
 
-    if (!rules || rules.length === 0) return list;
+    if (!rules || rules.length === 0) {
+        const basicList = list.map(u => ({
+            ...u,
+            resolvedFoc: u.resolvedFoc || u.unitData?.foc || u.foc || 'Special' // Default to Special
+        }));
+        return basicList;
+    }
     
-    // This context is now much more complete, giving the engine full visibility.
     const context = {
         armyList: list,
         generalId: generalId,
@@ -809,11 +1164,29 @@ function getResolvedArmyList() {
         currentArmyData: currentArmyData
     };
 
-    return resolveFocSlots(list, rules, context);
+    const resolvedList = resolveFocSlots(list, rules, context);
+    
+    // FIX: Ensure manual units don't get their FOC changed by resolution rules
+    // Also filter out any potential duplicates
+    const seenIds = new Set();
+    const finalList = [];
+    
+    resolvedList.forEach(unit => {
+        if (seenIds.has(unit.id)) {
+            console.warn(`Duplicate unit found and removed: ${unit.name} (ID: ${unit.id})`);
+            return;
+        }
+        seenIds.add(unit.id);
+        
+        if (unit.isManual) {
+            unit.resolvedFoc = unit.foc;
+        }
+        finalList.push(unit);
+    });
+    
+    return finalList;
 }
 
-
-// REPLACE IT WITH THIS CORRECTED VERSION
 function getProcessedUnits() {
     if (!currentArmyData) return {};
 
@@ -835,106 +1208,78 @@ function getProcessedUnits() {
     return unitsToProcess;
 }
 
-// PASTE THIS ENTIRE FUNCTION INTO main.js, REPLACING THE OLD ONE
-
-// DELETE your entire `addOrUpdateUnit` function and REPLACE it with this complete block:
-
 function addOrUpdateUnit() {
-    // Get the final calculated points for the configured unit
-    const calculatedPoints = calculateTotalPointsForUnit(getConfigurationFromPanel());
-    
-    // Get the selections from the panel
+    // Get the final calculated points for the configured unit (PARENT ONLY)
     const configuredUnit = getConfigurationFromPanel();
     if (!configuredUnit) return;
 
-    // Use the *correct*, existing function to generate display options
-    const displayOptions = generateDisplayOptions(configuredUnit);
-
+    const calculatedPoints = calculateTotalPointsForUnit(configuredUnit);
     const unitName = dom.unitSelector.value;
     const baseUnitData = getUnitDataByName(unitName);
 
-    // Handle manual child unit creation
+    // Handle manual child unit creation - check for ALL manual entries
     _preserveManualEntryState();
-    const manualData = tempManualEntry;
-    const isCreatingChild = document.getElementById('manual-unit-source');
+    const manualEntries = _getAllManualEntries();
+    
+    console.log('Manual entries found:', manualEntries);
 
-    let childUnit = null;
-    if (isCreatingChild && manualData.name && manualData.points) {
-        const sourceSkill = document.getElementById('manual-unit-source').value;
-        let foc = 'Special'; // Default
-        if (sourceSkill === 'Creyente Devoto') foc = 'Hero';
-        else if (sourceSkill === 'Buenos Contactos') {
-            const coreAllies = ["imp", "bret", "kis", "nors"];
-            if (coreAllies.includes(manualData.allyArmyId)) foc = 'Core';
-        }
+    // FIX: Clean up any existing duplicates before adding new units
+    cleanupDuplicateManualUnits();
 
-        childUnit = {
-            id: -1, 
-            name: manualData.name,
-            label: '',
-            qty: 1,
-            points: parseInt(manualData.points) || 0,
-            foc: foc,
-            faction: manualData.allyArmyId || mainHostFaction || currentArmyData.FACTION_ID,
-            selections: {},
-            displayOptions: [`<i>${manualData.details || "Sin detalles."}</i>`, `<i>(Vía ${sourceSkill})</i>`],
-            isChildOf: -1, 
-            createdUnitId: null,
-            isManual: true, 
-        };
-    }
-
-    if (editingUnitId !== null) { // This is an UPDATE operation
+    if (editingUnitId !== null) { // UPDATE operation
         const index = armyList.findIndex(u => u.id === editingUnitId);
         if (index !== -1) {
-            // Remove old child unit if it exists
-            const oldChildId = armyList[index].createdUnitId;
-            if (oldChildId) {
-                armyList = armyList.filter(u => u.id !== oldChildId);
-            }
+            // FIX: Remove ALL existing manual units for this parent
+            _cleanupManualUnits(editingUnitId);
 
-            // Update the existing unit in the list
+            // Update the existing parent unit
             armyList[index] = {
                 ...configuredUnit,
-                id: editingUnitId, // Ensure ID is preserved
-                points: calculatedPoints,
-                displayOptions: displayOptions,
-                unitData: baseUnitData, // Ensure unitData is present
-                createdUnitId: null
+                id: editingUnitId,
+                points: calculatedPoints, // PARENT POINTS ONLY
+                displayOptions: generateDisplayOptions(configuredUnit),
+                unitData: baseUnitData
             };
 
-            // Add new child unit if applicable
-            if (childUnit) {
-                childUnit.id = nextId++;
-                childUnit.isChildOf = editingUnitId;
-                armyList[index].createdUnitId = childUnit.id;
-                armyList.push(childUnit);
-            }
+            // Create independent manual units for EACH manual entry
+            manualEntries.forEach(manualData => {
+                if (manualData.name && manualData.points) {
+                    createIndependentManualUnit(manualData, editingUnitId);
+                }
+            });
         }
-    } else { // This is an ADD operation
+    } else { // ADD operation
         const newUnit = {
             ...configuredUnit,
             id: nextId++,
-            points: calculatedPoints,
-            displayOptions: displayOptions,
-            unitData: baseUnitData,
-            createdUnitId: null
+            points: calculatedPoints, // PARENT POINTS ONLY
+            displayOptions: generateDisplayOptions(configuredUnit),
+            unitData: baseUnitData
         };
         
-        if (childUnit) {
-            childUnit.id = nextId++;
-            newUnit.createdUnitId = childUnit.id;
-            childUnit.isChildOf = newUnit.id;
-            armyList.push(newUnit, childUnit);
-        } else {
-            armyList.push(newUnit);
-        }
+        armyList.push(newUnit);
+        
+        // Create independent manual units for EACH manual entry
+        manualEntries.forEach(manualData => {
+            if (manualData.name && manualData.points) {
+                createIndependentManualUnit(manualData, newUnit.id);
+            }
+        });
     }
     
-    // Reset the UI and update everything
+    // FIX: Final cleanup to ensure no duplicates
+    cleanupDuplicateManualUnits();
+    
+    // Reset and update UI
     cancelEdit();
+    populateUnitSelector();
+    renderArmyList();
+    updateMasterUI();
+    storage.saveStateToLocalStorage(getCurrentAppState());
+    
+    console.log('Final army list after add/update:', armyList);
 }
-// PASTE THIS ENTIRE FUNCTION INTO main.js, REPLACING THE OLD ONE
+
 function calculateTotalPointsForUnit(unit) {
     if (!unit || !unit.name) return 0;
     const baseUnit = getUnitDataByName(unit.name);
@@ -1075,7 +1420,6 @@ function updateConfigSubtotal() {
     return Math.ceil(subtotal);
 }
 
-// PASTE THIS ENTIRE FUNCTION INTO main.js, REPLACING THE OLD ONE
 function generateDisplayOptions(unit) {
     if (unit.isManual) return unit.displayOptions;
 
@@ -1201,7 +1545,6 @@ function generateDisplayOptions(unit) {
     return displayOptions.sort();
 }
 
-
 function confirmModalSelection() {
     const type = dom.modal.dataset.currentType;
     if (!tempSelections[type]) tempSelections[type] = { selection: {}, points: 0 };
@@ -1245,7 +1588,6 @@ function cancelEdit() {
     updateMasterUI();
     renderArmyList();
 }
-
 
 function populateArmySelector() {
     dom.armySelector.innerHTML = '<option value="">-- Elige un Ejército --</option>';
@@ -1320,6 +1662,9 @@ async function selectArmy(armyId) {
 async function updateAndRenderConfigPanel(unitToEdit = null) {
     _preserveManualEntryState(); 
 
+ console.log('=== UPDATE CONFIG PANEL DEBUG ===');
+    console.log('tempManualEntry at start:', tempManualEntry);
+    
     const unitName = dom.unitSelector.value;
     dom.unitWarningArea.innerHTML = '';
 
@@ -1362,12 +1707,19 @@ async function updateAndRenderConfigPanel(unitToEdit = null) {
     };
 
     const ruleset = currentArmyData?.ARMY_RULESET;
+    console.log('Ruleset found:', !!ruleset);
+    console.log('Modification rules:', ruleset?.modificationRules);
     // 5. Call the rules engine with the single, correct context.
     const { finalData, uiActions } = await processUnitRules(ruleset?.modificationRules, context, unitDataForRules);
     // --- END: CONSOLIDATED LOGIC ---
-
+console.log('UI Actions from rules engine:', uiActions);
+    console.log('Number of RENDER_COMPONENT actions:', 
+        uiActions?.filter(action => action.type === 'RENDER_COMPONENT' && action.payload.componentName === 'ManualUnitEntry').length || 0);
     // Render the panel using the final data from the engine.
     renderConfigOptions(unitName, finalData, configuredUnit);
+
+     // Process any UI actions (like manual entry)
+    console.log('Calling processUiActions with tempManualEntry:', tempManualEntry);
 
     // Process any UI actions (like manual entry).
     processUiActions(uiActions); 
@@ -1376,6 +1728,7 @@ async function updateAndRenderConfigPanel(unitToEdit = null) {
 
     // Attach the generic listeners, which will correctly ignore the exclusive options.
     attachGenericConfigListeners();
+     console.log('=== END UPDATE CONFIG PANEL ===');
 
     // Attach the specific listener for the Daemon Prince's marks. This is separate and now conflict-free.
     if (unitName.includes("Príncipe Demonio")) {
@@ -1411,16 +1764,15 @@ async function updateAndRenderConfigPanel(unitToEdit = null) {
     }
        // --- START: ADD THIS NEW BLOCK ---
     // This correctly re-attaches the listener for the musician upgrade every time the panel is rendered.
-    const musicianCheckbox = dom.configArea.querySelector('#config-cmd-m');
-    if (musicianCheckbox) {
-        musicianCheckbox.addEventListener('change', () => {
-            // When the musician checkbox changes, we need to re-render the panel
-            // to enable or disable the upgrade checkbox.
-            updateTempSelectionsFromPanel();
-            const currentConfig = getConfigurationFromPanel();
-            updateAndRenderConfigPanel(currentConfig);
-        });
-    }
+    //   const musicianCheckbox = dom.configArea.querySelector('#config-cmd-m');
+    //   if (musicianCheckbox) {
+    // When the musician checkbox changes, we need to re-render the panel
+    // to enable or disable the upgrade checkbox.
+  //          updateTempSelectionsFromPanel();
+  //          const currentConfig = getConfigurationFromPanel();
+  //          updateAndRenderConfigPanel(currentConfig);
+  //      });
+  //  }
     // --- END: ADD THIS NEW BLOCK ---
 }
 // Helper function to attach generic listeners (avoids repetition)
@@ -1450,6 +1802,7 @@ function attachGenericConfigListeners() {
 }
 // Debounced handler for change events
 let configChangeDebounceTimer;
+
 function handleConfigChange() {
     clearTimeout(configChangeDebounceTimer);
     configChangeDebounceTimer = setTimeout(() => {
@@ -1460,6 +1813,7 @@ function handleConfigChange() {
 
 // Debounced handler for input events (for number fields primarily)
 let configInputDebounceTimer;
+
 function handleConfigInput(event) {
      if(event.target.type === 'number' || event.target.type === 'text'){ // Handle text inputs too (like label)
         clearTimeout(configInputDebounceTimer);
@@ -1493,7 +1847,6 @@ function resetUI(clearSelectors = false) {
 }
 
 // REPLACE the old populateUnitSelector with this new version 12/10/25--
-
 
 function populateUnitSelector() {
     const unitSelector = dom.unitSelector;
@@ -1715,8 +2068,6 @@ function isUnitAllowedByChaosHostRules(unit, context) {
     return true;
 }
 
-
-// REPLACE this function in main.js
 function handleCompositionRatio(event) {
     const unitName = dom.unitSelector.value;
     if (!unitName) return;
@@ -1802,9 +2153,6 @@ function getUnitSubfaction(unit) {
     return unit.subfaction || null;
 }
 
-// REPLACE the entire openSelectionModal function in main.js with this one.
-
-// REPLACE your existing openSelectionModal function with this patched version.
 
 function openSelectionModal(e) {
     const type = e.target.closest('.open-modal-btn').dataset.type;
@@ -2061,6 +2409,8 @@ function updateModalState() {
     dom.modalFooter.innerHTML = footerHtml;
     dom.modalConfirmBtn.disabled = isInvalid;
 }
+
+// FIX: Update renderArmyList to show manual units in their own FOC categories
 function renderArmyList() {
     dom.armyListContainer.innerHTML = '';
     if (armyList.length === 0) {
@@ -2068,135 +2418,186 @@ function renderArmyList() {
         return;
     }
 
+    // Get the resolved army list with proper FOC assignments from ruleset
     const resolvedArmyList = getResolvedArmyList();
 
+    // Group units by their RESOLVED FOC (from ruleset)
     const groupedByFoc = {};
     if (!currentArmyData) return;
+    
+    // Initialize all FOC categories
     Object.keys(currentArmyData.FOC_CONFIG).forEach(foc => groupedByFoc[foc] = []);
 
-    const sortedList = [...resolvedArmyList].sort((a, b) => {
-        if (a.id === b.isChildOf) return -1;
-        if (b.id === a.isChildOf) return 1;
-        return a.id - b.id;
-    });
-
-    sortedList.forEach(unit => {
-        const unitData = !unit.isManual ? getUnitDataByName(unit.name) : null;
-        const effectiveFoc = unit.resolvedFoc || (unitData?.foc || unit.foc);
+    // Group units by their resolved FOC - INCLUDING MANUAL UNITS
+    resolvedArmyList.forEach(unit => {
+        // Manual units should be treated as independent units, not children
+        const effectiveFoc = unit.resolvedFoc || unit.foc;
         if (groupedByFoc[effectiveFoc]) {
             groupedByFoc[effectiveFoc].push(unit);
         } else {
-             console.warn(`Unit ${unit.name} has an unknown FOC: ${effectiveFoc}`);
+            console.warn(`Unit ${unit.name} has an unknown resolved FOC: ${effectiveFoc}`);
+            // Fallback: add to Special category
+            if (groupedByFoc.Special) {
+                groupedByFoc.Special.push(unit);
+            }
         }
     });
 
+    // Render each FOC category
     Object.entries(groupedByFoc).forEach(([foc, units]) => {
-        if (units.length > 0) {
-            const focConfig = currentArmyData.FOC_CONFIG[foc];
-            const totalFocPoints = units.reduce((sum, u) => {
-                const child = armyList.find(c => c.isChildOf === u.id);
-                const unitPoints = u.points || 0;
-                const childPoints = child ? (child.points || 0) : 0;
-                return sum + unitPoints + childPoints;
-            }, 0);
-            dom.armyListContainer.innerHTML += `<div class="foc-header flex justify-between items-center ${focConfig.color} text-white p-2 rounded-t-lg mt-4"><h3 class="font-bold">${focConfig.label}</h3><span class="font-bold">${totalFocPoints} pts</span></div>`;
+        if (units.length === 0) return;
 
-            units.forEach(unit => {
-                const unitData = !unit.isManual ? getUnitDataByName(unit.name) : null;
-                if (!unitData && !unit.isManual) {
-                    console.error(`Could not find unit data for ${unit.name} in any loaded DB.`);
-                    return;
-                }
+        const focConfig = currentArmyData.FOC_CONFIG[foc];
+        const totalFocPoints = units.reduce((sum, u) => sum + (u.points || 0), 0);
+        
+        dom.armyListContainer.innerHTML += `
+            <div class="foc-header flex justify-between items-center ${focConfig.color} text-white p-2 rounded-t-lg mt-4">
+                <h3 class="font-bold">${focConfig.label}</h3>
+                <span class="font-bold">${totalFocPoints} pts</span>
+            </div>
+        `;
 
-                const editingClass = unit.id === editingUnitId ? 'editing' : '';
-                const childClass = unit.isChildOf ? 'child-unit' : '';
-                let titleText;
-                let unitRules = unit.isManual ? '' : (unitData?.reglasEspeciales || '');
+        units.forEach(unit => {
+            const unitData = !unit.isManual ? getUnitDataByName(unit.name) : null;
+            
+            const editingClass = unit.id === editingUnitId ? 'editing' : '';
+            let titleText;
 
-                if (unit.label) {
-                    titleText = `"${unit.label}"`;
-                } else if (unit.isManual) {
-                    titleText = unit.name;
-                } else if (typeof unit.qty === 'object' && unitData.composition) {
-                    const comp = unitData.composition;
-                    titleText = `${unit.qty.primary}x ${comp.primary.name} & ${unit.qty.secondary}x ${comp.secondary.name}`;
+            if (unit.label) {
+                titleText = `"${unit.label}"`;
+            } else if (unit.isManual) {
+                titleText = unit.name;
+            } else if (typeof unit.qty === 'object' && unitData?.composition) {
+                const comp = unitData.composition;
+                titleText = `${unit.qty.primary}x ${comp.primary.name} & ${unit.qty.secondary}x ${comp.secondary.name}`;
+            } else {
+                titleText = `${unit.qty > 1 || unit.qty === 0 ? unit.qty + 'x ' : ''}${unit.name}`;
+            }
+
+            let armyOrigin = '';
+            if(mainHostFaction && unit.faction !== mainHostFaction && chaosHostData[unit.faction]) {
+                armyOrigin = `<span class="text-xs text-gray-400 ml-2">(${chaosHostData[unit.faction].ARMY_NAME})</span>`;
+            }
+
+            const manualIndicator = unit.isManual ? 
+                `<span class="text-xs text-blue-400 ml-2">(Unidad Manual)</span>` : '';
+
+            const titleHtml = `<p class="font-bold text-lg text-white">${titleText}${armyOrigin}${manualIndicator}</p>`;
+            let generalCheckboxHtml = '';
+
+            // Only allow regular units to be generals, not manual units
+            if (unitData && (unitData.foc === 'Lord' || unitData.foc === 'Hero') && !unit.isManual) {
+                const isChecked = unit.id === generalId ? 'checked' : '';
+                generalCheckboxHtml = `
+                    <div class="mt-2">
+                        <label class="text-xs text-yellow-400">
+                            <input type="checkbox" class="general-checkbox mr-1" data-id="${unit.id}" ${isChecked}> 
+                            General
+                        </label>
+                    </div>`;
+            }
+
+            // Mount rules code
+            let unitRules = unit.isManual ? '' : (unitData?.reglasEspeciales || '');
+            
+            if (unitData && unit.selections.mount) {
+                let mountDB;
+                if (mainHostFaction && chaosHostData[unit.faction]) {
+                    mountDB = chaosHostData[unit.faction].mountsDB;
                 } else {
-                    titleText = `${unit.qty > 1 || unit.qty === 0 ? unit.qty + 'x ' : ''}${unit.name}`;
+                    mountDB = currentArmyData.mountsDB;
                 }
-
-                let armyOrigin = '';
-                if(mainHostFaction && unit.faction !== mainHostFaction && chaosHostData[unit.faction]) {
-                    armyOrigin = `<span class="text-xs text-gray-400 ml-2">(${chaosHostData[unit.faction].ARMY_NAME})</span>`;
+                const mountData = mountDB[unit.selections.mount.name];
+                if (mountData && mountData.reglasEspeciales) {
+                    unitRules += unitRules ? `, ${mountData.reglasEspeciales}` : mountData.reglasEspeciales;
                 }
+            }
+            const specialRulesHtml = unitRules ? `<div class="text-xs text-blue-300 mt-2"><b>Reglas:</b> ${unitRules}</div>` : '';
 
-                const titleHtml = `<p class="font-bold text-lg text-white">${titleText}${armyOrigin}</p>`;
-                let generalCheckboxHtml = '';
-
-                if (unitData && (unitData.foc === 'Lord' || unitData.foc === 'Hero') && !unit.isManual) {
-                    const isChecked = unit.id === generalId ? 'checked' : '';
-                    generalCheckboxHtml = `<div class="mt-2"><label class="text-xs text-yellow-400"><input type="checkbox" class="general-checkbox mr-1" data-id="${unit.id}" ${isChecked}> General</label></div>`;
-                }
-
-                if (unitData && unit.selections.mount) {
-                    let mountDB;
-                     if (mainHostFaction && chaosHostData[unit.faction]) {
-                        mountDB = chaosHostData[unit.faction].mountsDB;
-                    } else {
-                        mountDB = currentArmyData.mountsDB;
-                    }
-                    const mountData = mountDB[unit.selections.mount.name];
-                    if (mountData && mountData.reglasEspeciales) {
-                        unitRules += `, ${mountData.reglasEspeciales}`;
-                    }
-                }
-                const specialRulesHtml = unitRules ? `<div class="text-xs text-blue-300 mt-2"><b>Reglas:</b> ${unitRules}</div>` : '';
-
-                const childUnit = armyList.find(c => c.isChildOf === unit.id);
-                const totalUnitPoints = (unit.points || 0) + (childUnit ? (childUnit.points || 0) : 0);
-
-
-                const entryHTML = `<div class="unit-entry bg-gray-700 p-3 ${editingClass} ${childClass}" data-id="${unit.id}">
+            const entryHTML = `
+                <div class="unit-entry bg-gray-700 p-3 ${editingClass} ${unit.isManual ? 'manual-unit' : ''}" data-id="${unit.id}">
                     <div class="flex justify-between items-start">
-                        <div>${titleHtml}<div class="text-xs text-gray-400 pl-4 mt-1">${unit.displayOptions.map(opt => `<span>${opt}</span>`).join('<br>')}</div>${specialRulesHtml}</div>
+                        <div>
+                            ${titleHtml}
+                            <div class="text-xs text-gray-400 pl-4 mt-1">
+                                ${unit.displayOptions.map(opt => `<span>${opt}</span>`).join('<br>')}
+                            </div>
+                            ${specialRulesHtml}
+                        </div>
                         <div class="text-right flex-shrink-0 pl-2">
-                            <p class="font-bold text-xl text-yellow-400">${totalUnitPoints} pts</p>
-                            ${!childClass ? `<div class="mt-1 flex items-center justify-end gap-2">
-                            <button class="duplicate-btn text-blue-400 hover:text-blue-300 text-xs font-bold" data-action="duplicate" data-id="${unit.id}" title="Clonar unidad">Clonar</button>
-                            <button class="remove-btn text-red-400 hover:text-red-300 text-xs font-bold" data-action="remove" data-id="${unit.id}" title="Borrar unidad">Borrar</button>                            </div>` : ''}
+                            <p class="font-bold text-xl text-yellow-400">${unit.points} pts</p>
+                            <div class="mt-1 flex items-center justify-end gap-2">
+                                <button class="remove-btn text-red-400 hover:text-red-300 text-xs font-bold" 
+                                        data-action="remove" data-id="${unit.id}" title="Borrar unidad">
+                                    Borrar
+                                </button>
+                            </div>
                             ${generalCheckboxHtml}
                         </div>
                     </div>
                 </div>`;
-                dom.armyListContainer.insertAdjacentHTML('beforeend', entryHTML);
-            });
-        }
+                
+            dom.armyListContainer.insertAdjacentHTML('beforeend', entryHTML);
+        });
     });
 }
-// DELETE your entire `startEdit` function and REPLACE it with this block:
 
 function startEdit(id) {
     const unitToEdit = armyList.find(u => u.id === id);
-    if (!unitToEdit || unitToEdit.isChildOf) return;
+    // Don't allow editing manual units directly
+    if (!unitToEdit || unitToEdit.isManual) return;
 
-    // This is the critical line that loads the unit's data for editing.
+    console.log('=== START EDIT DEBUG ===');
+    console.log('Editing unit:', unitToEdit);
+
     editingUnitId = id;
     tempSelections = JSON.parse(JSON.stringify(unitToEdit.selections || {}));
+    // FIRST: Populate tempManualEntry BEFORE any rendering happens
+   
 
-    dom.unitSelector.value = unitToEdit.name;
+    // Handle manual units for this parent - reset tempManualEntry
+    // FIX: Only populate tempManualEntry - processUiActions will handle rendering
+        // FIRST: Populate tempManualEntry BEFORE any rendering happens
+    tempManualEntry = {};
+    const existingManualUnits = _getManualUnitsForParent(id);
+        
+    console.log('Found manual units for parent:', existingManualUnits);
+
+    existingManualUnits.forEach(manualUnit => {
+          console.log('Processing manual unit:', manualUnit);
+        // Extract source skill from displayOptions
+        const viaOption = manualUnit.displayOptions.find(opt => opt.startsWith('Vía: '));
+        if (viaOption) {
+            const sourceSkill = viaOption.replace('Vía: ', '');
+            
+            // Extract details (everything except the "Vía" line)
+            const details = manualUnit.displayOptions
+                .filter(opt => !opt.startsWith('Vía: '))
+                .join(', ');
+            
+            tempManualEntry[sourceSkill] = {
+                name: manualUnit.name,
+                points: manualUnit.points.toString(),
+                details: details,
+                allyArmyId: manualUnit.faction !== currentArmyData?.FACTION_ID ? manualUnit.faction : '',
+                sourceSkill: sourceSkill
+            };
+                        console.log(`Added to tempManualEntry for ${sourceSkill}:`, tempManualEntry[sourceSkill]);
+        } else {
+            console.warn('Manual unit missing Vía option:', manualUnit);
+
+        }
+    });
+        console.log('Final tempManualEntry:', tempManualEntry);
+
+
+    console.log('startEdit: tempManualEntry populated', tempManualEntry);
+    // Let updateAndRenderConfigPanel handle the rendering
+     dom.unitSelector.value = unitToEdit.name;
     dom.unitSelector.disabled = true;
-
-    const childUnit = armyList.find(u => u.isChildOf === id);
-    if (childUnit) {
-        const sourceSkill = childUnit.displayOptions.find(opt => opt.includes('Vía'))?.match(/\(Vía (.*)\)/)[1] || '';
-        tempManualEntry = {
-            name: childUnit.name,
-            points: childUnit.points,
-            details: childUnit.displayOptions.find(opt => !opt.includes('Vía'))?.replace(/<i>|<\/i>/g, '') || '',
-            allyArmyId: childUnit.faction
-        };
-    } else {
-        tempManualEntry = {};
-    }
+    // The manual entries will be populated by processUiActions when the config panel renders
+    // based on the current skills/selections
+    // NOW call updateAndRenderConfigPanel - tempManualEntry is ready
 
     updateAndRenderConfigPanel(unitToEdit);
 
@@ -2205,35 +2606,67 @@ function startEdit(id) {
     dom.addToListBtn.classList.replace('hover:bg-green-700', 'hover:bg-blue-700');
     renderArmyList();
     window.scrollTo({ top: 0, behavior: 'smooth' });
+        
+    console.log('=== END START EDIT ===');
+
 }
+
 
 function duplicateUnit(id) {
     const originalParent = armyList.find(u => u.id === id);
-    if (!originalParent || originalParent.isChildOf) return;
+    if (!originalParent || originalParent.isManual) return;
 
     const newParent = JSON.parse(JSON.stringify(originalParent));
     newParent.id = nextId++;
-    newParent.createdUnitId = null;
 
-    if (originalParent.createdUnitId) {
-        const originalChild = armyList.find(u => u.id === originalParent.createdUnitId);
-        if (originalChild) {
-            const newChild = JSON.parse(JSON.stringify(originalChild));
-            newChild.id = nextId++;
-            newChild.isChildOf = newParent.id;
-            newParent.createdUnitId = newChild.id;
-            armyList.push(newParent, newChild);
-        } else {
-            armyList.push(newParent);
-        }
-    } else {
-        armyList.push(newParent);
-    }
+    // FIX: Find and duplicate manual units for this parent
+    const originalManualUnits = _getManualUnitsForParent(id);
+    const newManualUnits = originalManualUnits.map(manualUnit => {
+        const newManualUnit = JSON.parse(JSON.stringify(manualUnit));
+        newManualUnit.id = nextId++;
+        newManualUnit.createdBy = newParent.id;
+        return newManualUnit;
+    });
+
+    armyList.push(newParent, ...newManualUnits);
 
     updateMasterUI();
     renderArmyList();
     storage.saveStateToLocalStorage(getCurrentAppState());
 }
+
+
+// FIX: Update army list click handler to prevent editing manual units
+dom.armyListContainer.addEventListener('click', (e) => {
+    const unitEntry = e.target.closest('.unit-entry');
+    if (!unitEntry) return;
+    const id = parseInt(unitEntry.dataset.id);
+    const unit = armyList.find(u => u.id === id);
+
+    // Handle general checkbox for non-manual units only
+    if (e.target.classList.contains('general-checkbox') && !unit?.isManual) {
+          // If the box is checked, this unit becomes the general.
+        // If it's unchecked, there is no general.
+        generalId = e.target.checked ? id : null;
+         // The master UI update will re-render the list, ensuring only one box
+        // can be checked at a time and all rules are re-evaluated.
+        updateMasterUI();
+        return; // Stop here to prevent the click from also triggering an edit.
+    }
+
+   
+    const action = e.target.dataset.action;
+    if (action === 'duplicate') {
+        duplicateUnit(id);
+    } else if (action === 'remove') {
+        removeUnitFromList(id);
+    } else if (!e.target.closest('button, input') && !unit?.isManual) {
+        // Only allow editing non-manual units
+        startEdit(id);
+    }
+});
+
+dom.armyListContainer._hasClickListener = true; // Mark as having listener
 function removeUnitFromList(id) {
     if (editingUnitId === id) {
         cancelEdit();
@@ -2244,8 +2677,17 @@ function removeUnitFromList(id) {
     if (!unitToRemove) return;
 
     const idsToRemove = new Set([id]);
-    if (unitToRemove.createdUnitId) {
-        idsToRemove.add(unitToRemove.createdUnitId);
+    
+    // If removing a parent unit, also remove its manual units
+    if (!unitToRemove.isManual) {
+        const manualUnits = _getManualUnitsForParent(id);
+        manualUnits.forEach(manualUnit => idsToRemove.add(manualUnit.id));
+    }
+    
+    // If removing a manual unit, check if it has a parent
+    if (unitToRemove.isManual && unitToRemove.createdBy) {
+        // Optional: You might want to remove the parent's reference to this manual unit
+        // This depends on your desired behavior
     }
 
     armyList = armyList.filter(unit => !idsToRemove.has(unit.id));
@@ -2259,6 +2701,31 @@ function removeUnitFromList(id) {
     storage.saveStateToLocalStorage(getCurrentAppState());
 }
 
+// NEW: Clean up duplicate manual units in the army list
+function cleanupDuplicateManualUnits() {
+    const seenManualUnits = new Map(); // key: createdBy + name + points
+    const unitsToRemove = new Set();
+    
+    // First pass: identify duplicates
+    armyList.forEach((unit, index) => {
+        if (unit.isManual) {
+            const key = `${unit.createdBy}_${unit.name}_${unit.points}`;
+            if (seenManualUnits.has(key)) {
+                // This is a duplicate, mark for removal
+                unitsToRemove.add(unit.id);
+                console.log(`Found duplicate manual unit: ${unit.name} (ID: ${unit.id})`);
+            } else {
+                seenManualUnits.set(key, unit.id);
+            }
+        }
+    });
+    
+    // Second pass: remove duplicates
+    if (unitsToRemove.size > 0) {
+        armyList = armyList.filter(unit => !unitsToRemove.has(unit.id));
+        console.log(`Removed ${unitsToRemove.size} duplicate manual units`);
+    }
+}
 function calculateFocPoints() {
     const focPoints = { Lord: 0, Hero: 0, Core: 0, Special: 0, Rare: 0 };
     if (!currentArmyData) return focPoints;
@@ -2266,25 +2733,16 @@ function calculateFocPoints() {
     const resolvedArmyList = getResolvedArmyList();
 
     resolvedArmyList.forEach(unit => {
-        const unitData = !unit.isManual ? getUnitDataByName(unit.name) : null;
-        const effectiveFoc = unit.resolvedFoc || (unitData?.foc) || unit.foc;
-
-        let totalUnitPoints = unit.points || 0;
-        if (!unit.isChildOf) {
-            const child = armyList.find(c => c.isChildOf === unit.id);
-            if (child) {
-                totalUnitPoints += (child.points || 0);
-            }
-        }
+        // Count points for ALL units, including manual units
+        const effectiveFoc = unit.resolvedFoc || unit.foc;
 
         if (focPoints.hasOwnProperty(effectiveFoc)) {
-            focPoints[effectiveFoc] += totalUnitPoints;
+            focPoints[effectiveFoc] += unit.points || 0;
         }
     });
+    
     return focPoints;
 }
-// --- PASTE THIS ENTIRE FUNCTION INTO main.js ---
-// (A good place is BEFORE the updateHostSummary function)
 
 function updateFocSummary(battlePoints, focPoints) {
     if (!currentArmyData || battlePoints <= 0) {
@@ -2349,7 +2807,7 @@ function updateFocSummary(battlePoints, focPoints) {
         <div class="w-full lg:w-1/2 bg-gray-900/50 p-2 rounded-lg">
             <div class="flex justify-between items-center mb-2">
                 <h3 class="font-bold text-white">Tropas</h3>
-                <span class="text-xs ${coreMinOk ? 'text-gray-400' : 'text-red-400'}">Core Min. ${coreMinOk ? 'OK' : 'FAIL'}</span>
+                <span class="text-xs ${coreMinOk ? 'text-gray-400' : 'text-red-400'}">Mín. Básicas ${coreMinOk ? 'OK' : 'FAIL'}</span>
             </div>
             <div class="w-full bg-gray-700 rounded-full h-1">
                 <div class="bg-green-500 h-1 rounded-full foc-bar-inner" style="width: ${tropasPercentage * 100}%"></div>
@@ -2535,24 +2993,17 @@ function updateMasterUI() {
     populateUnitSelector();
     
     const battlePoints = parseInt(dom.battlePointsInput.value) || 0;
-    const totalSpentPoints = armyList.reduce((sum, unit) => {
-        if (unit.isChildOf) return sum;
-        const child = armyList.find(c => c.isChildOf === unit.id);
-        const childPoints = child ? (child.points || 0) : 0;
-        return sum + (unit.points || 0) + childPoints;
-    }, 0);
+    
+    // FIX: Calculate total points including ALL units (parent and manual)
+    const totalSpentPoints = armyList.reduce((sum, unit) => sum + (unit.points || 0), 0);
 
     dom.spentPointsEl.textContent = totalSpentPoints;
     dom.availablePointsEl.textContent = battlePoints - totalSpentPoints;
 
     const focPoints = calculateFocPoints();
     
-    // --- THIS IS THE FIX ---
-    // The issue was never inside the summary functions, but in how they were called.
-    // By calling them here, we ensure they have all the data they need BEFORE rendering.
     updateFocSummary(battlePoints, focPoints); 
     updateHostSummary(battlePoints); 
-    // --- END OF FIX ---
     
     renderArmyList(); 
     updateArmyWarnings(focPoints);
@@ -2561,6 +3012,11 @@ function updateMasterUI() {
     dom.addToListBtn.disabled = !unitSelected;
 
     storage.saveStateToLocalStorage(getCurrentAppState());
+    
+    // Debug log
+    console.log('Army List:', armyList);
+    console.log('Total Points:', totalSpentPoints);
+    console.log('FOC Points:', focPoints);
 }
 
 
@@ -2575,11 +3031,12 @@ function printArmyList() {
     const battlePoints = parseInt(dom.battlePointsInput.value);
     const focPoints = calculateFocPoints();
 
-    // --- THIS IS THE FIX ---
-    // We call the function here in main.js where it exists...
-    const resolvedArmyList = getResolvedArmyList(); 
-    // ...and then pass the result as an argument to the print function.
-    generatePrintView(armyList, currentArmyData, armyListName, totalPoints, battlePoints, focPoints, mainHostFaction, chaosHostData, resolvedArmyList);
-    // --- END OF FIX ---
+    // FIX: Get resolved army list and ensure no duplicates
+    const resolvedArmyList = getResolvedArmyList();
+    
+    // Debug: Log the resolved army list to check for duplicates
+    console.log('Resolved Army List for Print:', resolvedArmyList);
+    
+    generatePrintView(resolvedArmyList, currentArmyData, armyListName, totalPoints, battlePoints, focPoints, mainHostFaction, chaosHostData, resolvedArmyList);
 }
 
